@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Observations</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <style>
+    body {
+      font-family: Arial;
+      background: #1e1e2f;
+      color: white;
+      text-align: center;
+      margin: 0;
+      padding: 20px;
+    }
+
+    h1 { margin-bottom: 10px; }
+
+    .row {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin: 10px 0;
+      flex-wrap: wrap;
+    }
+
+    .card {
+      width: 90px;
+      height: 120px;
+      border-radius: 12px;
+      padding: 8px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: bold;
+      color: #222;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+      transition: transform 0.2s;
+    }
+
+    .card:hover {
+      transform: scale(1.08);
+    }
+
+    .hidden {
+      background: #555;
+      color: transparent;
+    }
+
+    .selected {
+      outline: 3px solid white;
+    }
+
+    .Anxiety { background: #f6d365; }
+    .Depression { background: #89c2ff; }
+    .Burnout { background: #ff8a80; }
+    .DecisionFatigue { background: #caa8f5; }
+    .Frustration { background: #7ee081; }
+
+    input, button {
+      padding: 10px;
+      margin: 5px;
+      border-radius: 8px;
+      border: none;
+    }
+
+    button {
+      cursor: pointer;
+      background: #4cafef;
+      color: white;
+    }
+
+    .status {
+      margin: 10px;
+      font-size: 18px;
+    }
+  </style>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import {
+      getFirestore,
+      doc,
+      setDoc,
+      getDoc,
+      onSnapshot,
+      updateDoc
+    } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAJjmUb_VOw5ozzhexifKKOvPW97zzhMps",
+      authDomain: "observations-game.firebaseapp.com",
+      projectId: "observations-game"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const CONDITIONS = {
+      Anxiety: ["Worry", "Restlessness", "Tension"],
+      Depression: ["Low Mood", "Fatigue", "Hopelessness"],
+      Burnout: ["Exhaustion", "Cynicism", "Detachment"],
+      DecisionFatigue: ["Indecision", "Mental Fog", "Avoidance"],
+      Frustration: ["Anger", "Impatience", "Overreaction"]
+    };
+
+    function shuffle(array) {
+      return [...array].sort(() => Math.random() - 0.5);
+    }
+
+    function createDeck() {
+      let deck = [];
+      Object.entries(CONDITIONS).forEach(([c, symptoms]) => {
+        symptoms.forEach(s => deck.push({ condition: c, symptom: s }));
+      });
+      return shuffle(deck);
+    }
+
+    let roomId = "";
+    let playerIndex = null;
+    let game = null;
+    let selectedCard = null;
+
+    const appDiv = document.getElementById("app");
+
+    function renderCard(card, index, hidden, clickable, isSelected) {
+      const cls = `card ${hidden ? "hidden" : card.condition} ${isSelected ? "selected" : ""}`;
+      const label = hidden ? "" : `<div>${card.symptom}</div><div>${card.condition}</div>`;
+
+      return `<div class="${cls}" onclick="${clickable}">${label}</div>`;
+    }
+
+    function render() {
+      if (!game) {
+        appDiv.innerHTML = `
+          <h1>Observations</h1>
+          <button onclick="createRoom()">Create Room</button>
+          <input id="roomInput" placeholder="Enter Code"/>
+          <button onclick="joinRoom()">Join</button>
+        `;
+        return;
+      }
+
+      const me = game.players[playerIndex];
+      const opp = game.players[(playerIndex + 1) % 2];
+
+      appDiv.innerHTML = `
+        <h1>Observations</h1>
+        <div class="status">${game.currentPlayer === playerIndex ? "Your Turn" : "Opponent Turn"}</div>
+
+        <h3>Room: ${roomId}</h3>
+
+        <h3>Opponent</h3>
+        <div class="row">
+          ${opp.hand.map(() => `<div class="card hidden"></div>`).join("")}
+        </div>
+
+        <h3>Your Hand</h3>
+        <div class="row">
+          ${me.hand.map((c, i) =>
+            renderCard(c, i, false, `selectCard(${i})`, selectedCard === i)
+          ).join("")}
+        </div>
+
+        <h3>Center</h3>
+        <div class="row">
+          ${game.drawPile.map((c, i) =>
+            renderCard(c, i, false, `swap(${i})`, false)
+          ).join("")}
+        </div>
+      `;
+    }
+
+    window.createRoom = async () => {
+      roomId = Math.random().toString(36).substring(2, 7);
+      const deck = createDeck();
+
+      const newGame = {
+        players: [
+          { hand: deck.slice(0, 5), sets: [] },
+          { hand: deck.slice(5, 10), sets: [] }
+        ],
+        drawPile: deck.slice(10, 15),
+        currentPlayer: 0
+      };
+
+      await setDoc(doc(db, "rooms", roomId), newGame);
+
+      playerIndex = 0;
+      listen();
+      render();
+
+      navigator.clipboard.writeText(roomId);
+      alert("Room code copied: " + roomId);
+    };
+
+    window.joinRoom = async () => {
+      roomId = document.getElementById("roomInput").value;
+      const snap = await getDoc(doc(db, "rooms", roomId));
+
+      if (!snap.exists()) {
+        alert("Room not found");
+        return;
+      }
+
+      playerIndex = 1;
+      listen();
+    };
+
+    function listen() {
+      onSnapshot(doc(db, "rooms", roomId), (snap) => {
+        game = snap.data();
+        render();
+      });
+    }
+
+    window.selectCard = (i) => {
+      selectedCard = i;
+      render();
+    };
+
+    window.swap = async (i) => {
+      if (game.currentPlayer !== playerIndex) return;
+      if (selectedCard == null) return;
+
+      let newGame = JSON.parse(JSON.stringify(game));
+
+      let temp = newGame.players[playerIndex].hand[selectedCard];
+      newGame.players[playerIndex].hand[selectedCard] = newGame.drawPile[i];
+      newGame.drawPile[i] = temp;
+
+      newGame.currentPlayer = (game.currentPlayer + 1) % 2;
+
+      await updateDoc(doc(db, "rooms", roomId), newGame);
+      selectedCard = null;
+    };
+
+    render();
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+</body>
+</html>
