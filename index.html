@@ -122,18 +122,18 @@
     let playerIndex = null;
     let game = null;
     let selectedCard = null;
-
-    const appDiv = document.getElementById("app");
+    let appDiv;
 
     function renderCard(card, index, hidden, clickable, isSelected) {
       const cls = `card ${hidden ? "hidden" : card.condition} ${isSelected ? "selected" : ""}`;
       const label = hidden ? "" : `<div>${card.symptom}</div><div>${card.condition}</div>`;
-
       return `<div class="${cls}" onclick="${clickable}">${label}</div>`;
     }
 
     function render() {
-      if (!game) {
+      if (!appDiv) return;
+
+      if (!game || playerIndex === null) {
         appDiv.innerHTML = `
           <h1>Observations</h1>
           <button onclick="createRoom()">Create Room</button>
@@ -207,6 +207,7 @@
 
       playerIndex = 1;
       listen();
+      render();
     };
 
     function listen() {
@@ -237,7 +238,10 @@
       selectedCard = null;
     };
 
-    render();
+    window.onload = () => {
+      appDiv = document.getElementById("app");
+      render();
+    };
   </script>
 </head>
 
